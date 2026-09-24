@@ -97,17 +97,27 @@ func (f *FS) Stat(p string) (filesystem.Stat, error) {
 	if err != nil {
 		return nil, err
 	}
-	return filesystem.NewStat(uint16(e.mode()), uint64(e.size), uint64(e.ordinal+1)), nil
+	return filesystem.NewStat(e.mode(), uint64(e.size), uint64(e.ordinal+1)), nil
 }
 
-func (e *entry) mode() os.FileMode {
+// POSIX st_mode type bits. os.FileMode is NOT the shape this contract wants:
+// it is a uint32 whose type bits sit at the TOP (os.ModeDir is 1<<31), so
+// narrowing one to the uint16 a Stat carries throws every one of them away and
+// leaves the permissions -- a directory that cannot say it is a directory.
+const (
+	modeDir     = 0o040000
+	modeRegular = 0o100000
+	modeSymlink = 0o120000
+)
+
+func (e *entry) mode() uint16 {
 	switch {
 	case e.dir:
-		return os.ModeDir | 0o555
+		return modeDir | 0o555
 	case e.linkTarget != "":
-		return os.ModeSymlink | 0o777
+		return modeSymlink | 0o777
 	default:
-		return 0o444
+		return modeRegular | 0o444
 	}
 }
 

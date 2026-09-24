@@ -192,3 +192,58 @@ func TestTheMutatingHalfRefuses(t *testing.T) {
 		}
 	}
 }
+
+// TestALinkIsReadAsALink covers what the archive recorded for a redirection,
+// and what it answers for everything that is not one.
+func TestALinkIsReadAsALink(t *testing.T) {
+	link := &rardecode.FileHeader{Name: "current", LinkTarget: "releases/2026-09"}
+	plain, d := file("notes.txt", []byte("x"))
+	dir := &rardecode.FileHeader{Name: "releases", IsDir: true}
+	fs := archive(t, link, []byte(nil), plain, d, dir, []byte(nil))
+
+	got, err := fs.ReadLink("current")
+	if err != nil {
+		t.Fatalf("ReadLink: %v", err)
+	}
+	if got != "releases/2026-09" {
+		t.Errorf("ReadLink = %q, want the recorded target", got)
+	}
+	if _, err := fs.ReadLink("notes.txt"); !errors.Is(err, ErrNotSymlink) {
+		t.Errorf("ReadLink of a plain file gave %v, want ErrNotSymlink", err)
+	}
+	if _, err := fs.ReadLink("nowhere"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("ReadLink of an absent path gave %v, want ErrNotFound", err)
+	}
+
+	// Stat carries the kind in its mode, which is where the detail a DirEntry
+	// cannot hold survives: this org's DirEntry names files and directories
+	// only, so a link listed in a directory reads as a file.
+	// POSIX st_mode, not os.FileMode: the contract carries a uint16, and
+	// os.FileMode keeps its type bits above bit 26, where narrowing loses them.
+	for _, c := range []struct {
+		path string
+		want uint16
+	}{
+		{"current", modeSymlink | 0o777},
+		{"notes.txt", modeRegular | 0o444},
+		{"releases", modeDir | 0o555},
+	} {
+		st, err := fs.Stat(c.path)
+		if err != nil {
+			t.Fatalf("Stat(%q): %v", c.path, err)
+		}
+		if st.Mode() != c.want {
+			t.Errorf("Stat(%q).Mode() = %#o, want %#o", c.path, st.Mode(), c.want)
+		}
+	}
+
+	if err := fs.Close(); err != nil {
+		t.Errorf("Close: %v", err)
+	}
+	if fs.VolumeSet() != nil {
+		t.Error("an archive opened from a reader reported a volume set")
+	}
+	if _, err := fs.OpenFile("releases"); !errors.Is(err, ErrNotRegular) {
+		t.Errorf("opening a directory gave %v, want ErrNotRegular", err)
+	}
+}
