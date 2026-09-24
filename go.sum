@@ -1,0 +1,4 @@
+github.com/go-filesystems/interface v0.3.0 h1:cV4+2mvW1eCPyde+KIDRaGuIPAcr2sDgKrxGuGQr98k=
+github.com/go-filesystems/interface v0.3.0/go.mod h1:9MDfHNNKg9cW1qBa3hmURQj4jiWIdTo9Xpgdt8ZzvV8=
+github.com/nwaples/rardecode/v2 v2.4.1 h1:F7zNW2LdAuuBThHWXQaiFUGVD/sef299NfWSB1nHAl4=
+github.com/nwaples/rardecode/v2 v2.4.1/go.mod h1:7uz379lSxPe6j9nvzxUZ+n7mnJNgjsRNb6IbvGVHRmw=
