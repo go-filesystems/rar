@@ -1,34 +1,6 @@
 // Copyright (c) 2026, go-filesystems
 // SPDX-License-Identifier: BSD-3-Clause
 
-// Package rar is a pure-Go driver for the RAR archive format, reading an
-// archive as a filesystem.Filesystem.
-//
-// It decodes through github.com/nwaples/rardecode/v2, which is pure Go and
-// maintained; this package is the go-filesystems shape around it -- the
-// Filesystem/Opener contract, the volume resolver, and an extraction that can
-// say whether an entry came out whole.
-//
-// # Read-only
-//
-// An archive is read-only: every mutating method of filesystem.Filesystem
-// (WriteFile, MkDir, DeleteFile, DeleteDir, Rename) returns ErrReadOnly, as in
-// the other read-only drivers of this org.
-//
-// # Multi-volume
-//
-// A RAR set may be split across files, and the format finds the next one BY
-// NAME -- part1 asks for part2. Any text a downloader or a tidy-up has added
-// to those names breaks the chain, and what happens then is worse than an
-// error: some readers pad the missing remainder with zeros and report success,
-// so the file is the right LENGTH and the wrong content. [Volumes] resolves the
-// chain by volume NUMBER within a directory instead, so a set survives names
-// like "film.part2 [49736858].rar" without anything being renamed or linked.
-//
-// [OpenReader] takes a single io.ReaderAt, which is the shape
-// github.com/go-filesystems/detect opens every driver with; it can therefore
-// only serve a single-volume archive, and says so. [Open] takes a path and
-// resolves the whole set.
 package rar
 
 import (
@@ -69,4 +41,21 @@ var (
 	// ErrVolumeMissing is returned when the chain asks for a volume the
 	// directory does not hold.
 	ErrVolumeMissing = errors.New("rar: a volume of this set is missing")
+
+	// ErrWriterClosed is returned by a Writer that has already been closed.
+	ErrWriterClosed = errors.New("rar: writer is closed")
+
+	// ErrBadName is returned for an entry name the archive cannot carry
+	// unchanged: absolute, climbing out of the archive, or holding a character a
+	// RAR reader would read as something else. See the Writer.
+	ErrBadName = errors.New("rar: an entry name the archive cannot carry")
+
+	// ErrSizeMismatch is returned when the reader handed to AddFile delivers a
+	// different number of bytes than the size it was called with.
+	//
+	// The size is in the header before the bytes are read, so a mismatch cannot
+	// be absorbed: it has to fail at the call that made the promise, while the
+	// entry still has a name to report, rather than become an archive whose
+	// header disagrees with its data.
+	ErrSizeMismatch = errors.New("rar: the entry did not deliver the size it declared")
 )
