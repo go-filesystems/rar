@@ -1,3 +1,5 @@
+<p align="center"><img src="https://raw.githubusercontent.com/go-filesystems/brand/main/social/go-filesystems-rar.png" alt="go-filesystems/rar" width="720"></p>
+
 # rar
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/go-filesystems/rar.svg)](https://pkg.go.dev/github.com/go-filesystems/rar)
