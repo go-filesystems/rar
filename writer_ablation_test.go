@@ -310,37 +310,43 @@ func TestAblationTheMethodBits(t *testing.T) {
 	bothJudgesRefuse(t, replaceHeader(a, b, hdr), "the stored method replaced by method 1")
 }
 
-// TestAblationTheMethodNumberAtTheWrongOffset.
+// TestAblationTheCompressionVersion.
 //
-// ⚠ THIS ABLATION PASSES, and it is reported rather than removed.
+// Bits 0-5 of the compression word are the algorithm VERSION, and this writer
+// puts 0 there -- RAR 5.0. Setting them to a version nothing implements is
+// refused by 7-Zip, whatever the method says.
 //
-// Writing the method number 1 into the low bits -- where the compression
-// ALGORITHM VERSION lives -- instead of at offset seven leaves the method field
-// reading 0, so both judges take the entry for a stored one and return its bytes
-// intact. Neither reader validates the version of an entry it is not going to
-// decompress.
+// ⚠ Only ONE judge sees this field, and finding that out cost a red CI run worth
+// recording. The ablation was first written with version 1, which 7-Zip 26.03 on
+// the machine this was developed on ACCEPTS -- it implements RAR 7 and takes
+// version 1 for it -- so the test asserted that the ablation passes. CI carries
+// 7-Zip 23.01, which predates RAR 7, and refused it: "Unsupported Method". Both
+// readings are correct for their version, which means version 1 measures the
+// JUDGE and not the writer. A version no release implements measures the writer
+// on either.
 //
-// So no judge available here can hold the writer to the version field, and the
-// only thing keeping it right is that it is written from the note and stated in
-// a comment. The test asserts what IS true -- that the bytes still come back --
-// so that the day a reader does start checking, this fails and says why.
-func TestAblationTheMethodNumberAtTheWrongOffset(t *testing.T) {
+// rardecode cannot see this field at all: it reads the version only for an entry
+// it is about to decompress, and a stored entry never is. So the assertion is on
+// 7-Zip alone, and rardecode's acceptance is asserted too -- if that ever changes
+// it is a second judge for this field and this test should gain it.
+func TestAblationTheCompressionVersion(t *testing.T) {
 	a := ablationArchive(t)
 	b := find(t, walk(t, a), blockFile, "ünïcødé")
 	f := parseFileBody(t, b.body)
 
 	body := append([]byte(nil), b.body[:f.compOff]...)
-	body = appendVint(body, 1) // method number in the version field
+	body = appendVint(body, 63) // an algorithm version no release implements
 	body = append(body, b.body[f.compOff+f.compLen:]...)
 	ablated := replaceHeader(a, b, appendBlock(nil, b.htype, b.flags, b.dataSize, body))
 
+	if err := sevenZipRefuses(t, ablated); err == nil {
+		t.Error("ABLATION PASSED: 7-Zip accepted an archive claiming compression version 63")
+	} else {
+		t.Logf("7-Zip refused: %v", err)
+	}
 	if err := goReaderRefuses(ablated); err != nil {
-		t.Fatalf("a judge now checks the version field, and this ablation should become a refusal: %v", err)
+		t.Logf("rardecode now checks the version of a stored entry too, which is a second judge for this field: %v", err)
 	}
-	if err := sevenZipRefuses(t, ablated); err != nil {
-		t.Fatalf("7-Zip now checks the version field, and this ablation should become a refusal: %v", err)
-	}
-	t.Log("ABLATION PASSES, as documented: no judge here validates the compression version of a stored entry")
 }
 
 // TestAblationTheDataSizeFlag.

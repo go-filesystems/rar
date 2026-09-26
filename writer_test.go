@@ -319,13 +319,15 @@ func TestSevenZipListsEveryEntryAndVerifiesTheArchive(t *testing.T) {
 		}
 	}
 
-	// The method it reports, because a stored entry is the only thing this
-	// package writes and "m0" is 7-Zip's name for it. An archive it read as some
-	// other method would still list and still extract -- small entries survive a
-	// wrong method claim -- so the claim is checked directly.
-	if !strings.Contains(string(list), "m0") {
-		t.Errorf("7-Zip does not report the stored method:\n%s", list)
-	}
+	// ⛔ The stored method is NOT asserted by grepping this listing for 7-Zip's
+	// name for it. That was written here first and it failed on CI, which carries
+	// 7-Zip 23.01 against 26.03 on the machine it was written on: the method
+	// column is not in the older version's output at all. A claim about OUR bytes
+	// does not belong in a grep of a third party's human-readable output, whose
+	// format is its own business and changes between releases. It is asserted on
+	// the bytes instead, by TestTheCompressionWordSaysStoredAndNothingElse, and
+	// judged by TestAblationTheMethodBits -- where both readers refuse an archive
+	// claiming any other method.
 }
 
 // TestSevenZipRejectsAnArchiveWeBroke is the control for the judge above.
@@ -714,4 +716,42 @@ func modeString(perm os.FileMode) string {
 		}
 	}
 	return string(out)
+}
+
+// TestTheCompressionWordSaysStoredAndNothingElse.
+//
+// The compression-information word packs four things, and this asserts the whole
+// word rather than the method alone, because every field in it is a claim: bits
+// 0-5 the algorithm VERSION (0 is RAR 5.0), bit 6 solid, bits 7-9 the METHOD (0
+// is stored), bits 10-14 the dictionary size. Stored, not solid, no dictionary,
+// version 5.0 -- so the word is zero, and any bit set in it is a promise this
+// writer cannot keep.
+//
+// It is asserted on the bytes because that is the only place it can be asserted
+// reliably: see TestAblationTheCompressionVersion for what the outside readers
+// can and cannot see here.
+func TestTheCompressionWordSaysStoredAndNothingElse(t *testing.T) {
+	raw, err := os.ReadFile(build(t, corpus()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocks := walk(t, raw)
+	files := 0
+	for _, b := range blocks {
+		if b.htype != blockFile {
+			continue
+		}
+		files++
+		f := parseFileBody(t, b.body)
+		word, n := readVint(b.body[f.compOff:])
+		if n == 0 {
+			t.Fatalf("no compression word in the header at %d", b.off)
+		}
+		if word != 0 {
+			t.Errorf("block at %d: compression word %#x, want 0 (version 0, not solid, method 0, no dictionary)", b.off, word)
+		}
+	}
+	if files != len(corpus()) {
+		t.Errorf("checked %d file headers, the corpus has %d entries", files, len(corpus()))
+	}
 }
