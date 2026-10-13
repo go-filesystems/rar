@@ -4,5 +4,5 @@ go 1.27.1
 
 require (
 	github.com/go-filesystems/interface v0.5.0
-	github.com/nwaples/rardecode/v2 v2.4.3
+	github.com/nwaples/rardecode/v2 v2.4.5
 )
