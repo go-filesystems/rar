@@ -42,6 +42,17 @@ var (
 	// directory does not hold.
 	ErrVolumeMissing = errors.New("rar: a volume of this set is missing")
 
+	// ErrTooLarge is returned when an archive asks for more than a [Limits]
+	// field allows: too many entries, a path over 4096 bytes or paths over 256
+	// MiB together, or a ReadFile of an entry over MaxFileSize. It is raised
+	// before the memory is reserved; raise the limit, or stream with OpenFile,
+	// if the size is expected.
+	ErrTooLarge = errors.New("rar: exceeds the size limit")
+
+	// ErrCorrupt is returned for a header that says something impossible, such
+	// as an unpacked size past 2^63.
+	ErrCorrupt = errors.New("rar: corrupt archive")
+
 	// ErrWriterClosed is returned by a Writer that has already been closed.
 	ErrWriterClosed = errors.New("rar: writer is closed")
 

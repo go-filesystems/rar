@@ -4,7 +4,9 @@
 package rar
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"sort"
@@ -42,6 +44,10 @@ type FS struct {
 	vols   *Volumes
 	byPath map[string]*entry
 	kids   map[string][]string
+
+	lim          Limits
+	pathBytes    int // charged against maxPathBytes by add
+	maxPathBytes int
 }
 
 // Volumes is the volume set this archive was opened from, or nil when it was
@@ -138,19 +144,37 @@ func (f *FS) ReadLink(p string) (string, error) {
 // It is the contract's method and it holds the entry in memory, which for a
 // video inside an archive is the whole video. Use OpenFile for anything whose
 // size you did not choose.
+//
+// An entry over Limits.MaxFileSize is refused with ErrTooLarge before anything
+// is read. The buffer is grown from what the decoder produces, not reserved
+// from the header's unpacked size, which is the archive's claim: a 55-byte
+// archive could claim 2 GiB and, before this, got it.
 func (f *FS) ReadFile(p string) ([]byte, error) {
 	h, err := f.OpenFile(p)
 	if err != nil {
 		return nil, err
 	}
 	defer h.Close()
-	buf := make([]byte, h.Size())
-	n, err := h.ReadAt(buf, 0)
-	if err != nil && !errors.Is(err, io.EOF) {
+	max := f.lim.MaxFileSize
+	if sz := h.Size(); sz > max {
+		return nil, fmt.Errorf("%w: %s unpacks to %d bytes, ReadFile's limit is %d (OpenFile streams)",
+			ErrTooLarge, p, sz, max)
+	}
+	var buf bytes.Buffer
+	buf.Grow(int(min(h.Size(), readFileHint)) + bytes.MinRead)
+	// One byte past the limit tells an entry of unknown size that it went over.
+	if _, err := io.Copy(&buf, io.NewSectionReader(h, 0, max+1)); err != nil {
 		return nil, err
 	}
-	return buf[:n], nil
+	if int64(buf.Len()) > max {
+		return nil, fmt.Errorf("%w: %s unpacks past %d bytes, ReadFile's limit", ErrTooLarge, p, max)
+	}
+	return buf.Bytes(), nil
 }
+
+// readFileHint is how much ReadFile reserves up front: the header's size is a
+// claim, so only a modest amount is believed before the decoder earns the rest.
+const readFileHint = 8 << 20
 
 // OpenFile hands back a handle on one entry.
 func (f *FS) OpenFile(p string) (filesystem.File, error) {

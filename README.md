@@ -82,6 +82,39 @@ entries, err := fs.ListDir(".")
 data, err := fs.ReadFile("film.mkv")
 ```
 
+### Untrusted input
+
+Every size in an archive is a claim, and a 56-byte archive used to be enough to
+make `Open` allocate 4 GiB. The decoder allocates its whole dictionary when it
+reads a file header, and the header names it (up to 64 GiB; the library's own
+ceiling is 4 GiB). These limits apply by default and are raised by naming them:
+
+```go
+fs, err := rar.OpenLimits("film.part1.rar", rar.Limits{MaxFileSize: 8 << 30})
+fs, err := rar.OpenReaderLimits(r, size, rar.Limits{MaxEntries: 1 << 22})
+```
+
+| limit | default | on excess |
+|---|---|---|
+| `MaxDictionary` | 1 GiB (the largest WinRAR's dialog offers) | `rardecode.ErrDictionaryTooLarge`, before the window is allocated |
+| `MaxFileSize`, what `ReadFile` buffers | 1 GiB | `ErrTooLarge`, before reading; `OpenFile` streams and has no ceiling |
+| `MaxEntries`, paths including implied directories | 1,048,576 | `ErrTooLarge` |
+| one path | 4096 bytes | `ErrTooLarge` |
+| all paths together | 256 MiB | `ErrTooLarge` |
+
+An unpacked size at or past 2^63 is `ErrCorrupt` (it used to read as negative and
+panic `ReadFile`), and an entry that does not know its size reports `Size() == 0`
+rather than 2^64−1. `ReadFile` grows its buffer from what the decoder yields
+instead of reserving the header's claim. Indexing is linear: 50,000 files in one
+directory took 14 s because each insert searched the directory's child list, and
+2000 entries 1000 directories deep took 39 s and 895 MB; they take milliseconds
+and are refused by the path budget.
+
+A RAR filter's block length is reduced modulo the window, so the dictionary limit
+bounds it too. Solid archives and compressed entries cost CPU in proportion to
+their unpacked size when read, which no limit here changes. `FuzzOpenReader`
+(`bombs_test.go`) covers the index and `ReadFile` on RAR 5 inputs.
+
 ### Writing
 
 ```go
