@@ -51,9 +51,14 @@ func OpenLimits(name string, lim Limits, opts ...Option) (*FS, error) {
 	}
 	first := vols.First()
 	all := append([]Option{rardecode.FileSystem(vols), rardecode.MaxDictionarySize(lim.MaxDictionary)}, opts...)
-	return indexLimits(func() (scanner, error) {
+	f, err := indexLimits(func() (scanner, error) {
 		return rardecode.OpenReader(first, all...)
 	}, vols, lim)
+	if err != nil {
+		return nil, err
+	}
+	f.list = func() ([]*rardecode.File, error) { return rardecode.List(first, all...) }
+	return f, nil
 }
 
 // OpenReader reads a SINGLE-VOLUME archive from r, and is the shape every
@@ -75,13 +80,19 @@ func OpenReader(r io.ReaderAt, size int64, opts ...Option) (filesystem.Filesyste
 func OpenReaderLimits(r io.ReaderAt, size int64, lim Limits, opts ...Option) (filesystem.Filesystem, error) {
 	lim = lim.resolved()
 	all := append([]Option{rardecode.MaxDictionarySize(lim.MaxDictionary)}, opts...)
-	return indexLimits(func() (scanner, error) {
+	f, err := indexLimits(func() (scanner, error) {
 		rr, err := rardecode.NewReader(io.NewSectionReader(r, 0, size), all...)
 		if err != nil {
 			return nil, err
 		}
 		return noCloseScanner{rr}, nil
 	}, nil, lim)
+	if err != nil {
+		return nil, err
+	}
+	listOpts := append(append([]Option(nil), all...), rardecode.FileSystem(readerFS{r: r, size: size}))
+	f.list = func() ([]*rardecode.File, error) { return rardecode.List(readerVolume, listOpts...) }
+	return f, nil
 }
 
 // index makes one pass over the archive to learn what it holds, and keeps the

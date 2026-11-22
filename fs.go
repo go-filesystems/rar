@@ -13,6 +13,7 @@ import (
 	"time"
 
 	filesystem "github.com/go-filesystems/interface"
+	"github.com/nwaples/rardecode/v2"
 )
 
 // entry is one path the archive holds. A directory with ordinal -1 was not
@@ -39,11 +40,20 @@ type entry struct {
 // reading forwards is linear overall, reading BACKWARDS starts a fresh pass.
 // Sequential use is what this is good at; a caller seeking about in a large
 // entry is paying for the archive's own shape, not for this code.
+//
+// Opening a NON-SOLID member does not rescan the headers: a member index is
+// built once, lazily (see index.go), so reading n members is linear in n. Solid
+// members keep the sequential pass, because their decoder state depends on
+// every file before them.
 type FS struct {
 	open   func() (scanner, error)
 	vols   *Volumes
 	byPath map[string]*entry
 	kids   map[string][]string
+
+	// list builds the member index (see index.go); nil when none is available.
+	list    func() ([]*rardecode.File, error)
+	members memberIndex
 
 	lim          Limits
 	pathBytes    int // charged against maxPathBytes by add
@@ -226,21 +236,11 @@ func (h *handle) seek(off int64) error {
 		return nil
 	}
 	_ = h.Close()
-	sc, err := h.fs.open()
-	if err != nil {
-		return err
-	}
-	for {
-		hdr, err := sc.Next()
-		if err != nil {
-			sc.Close()
-			if errors.Is(err, io.EOF) {
-				return ErrNotFound
-			}
+	sc := h.openMember()
+	if sc == nil {
+		var err error
+		if sc, err = h.scanToMember(); err != nil {
 			return err
-		}
-		if clean(hdr.Name) == h.e.path {
-			break
 		}
 	}
 	h.sc, h.pos = sc, 0
@@ -251,6 +251,41 @@ func (h *handle) seek(off int64) error {
 		h.pos = off
 	}
 	return nil
+}
+
+// openMember opens the entry through the member index, or returns nil when the
+// entry has to be reached by a sequential pass (see index.go).
+func (h *handle) openMember() scanner {
+	m := h.fs.lookupMember(h.e)
+	if m == nil {
+		return nil
+	}
+	rc, err := m.Open()
+	if err != nil {
+		return nil
+	}
+	return memberScanner{rc}
+}
+
+// scanToMember starts a pass and stops at the entry's header.
+func (h *handle) scanToMember() (scanner, error) {
+	sc, err := h.fs.open()
+	if err != nil {
+		return nil, err
+	}
+	for {
+		hdr, err := sc.Next()
+		if err != nil {
+			sc.Close()
+			if errors.Is(err, io.EOF) {
+				return nil, ErrNotFound
+			}
+			return nil, err
+		}
+		if clean(hdr.Name) == h.e.path {
+			return sc, nil
+		}
+	}
 }
 
 // ReadAt fills p from off, and refuses to invent what the archive did not give.
