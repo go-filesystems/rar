@@ -110,6 +110,14 @@ directory took 14 s because each insert searched the directory's child list, and
 2000 entries 1000 directories deep took 39 s and 895 MB; they take milliseconds
 and are refused by the path budget.
 
+Opening many members is linear, not quadratic: for NON-SOLID entries the first
+`OpenFile` builds, once, a member index (one `rardecode.List` pass, one header
+per entry, so bounded by `Limits.MaxEntries`) and every handle opens its member
+directly instead of rescanning headers from the start of the archive (8000
+members read 784 MB before, 65 MB now). SOLID entries legitimately need the
+sequential decode from the start of their block and keep the old pass; so does
+any entry the index cannot open, which keeps the errors unchanged.
+
 A RAR filter's block length is reduced modulo the window, so the dictionary limit
 bounds it too. Solid archives and compressed entries cost CPU in proportion to
 their unpacked size when read, which no limit here changes. `FuzzOpenReader`
