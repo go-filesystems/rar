@@ -220,7 +220,7 @@ func TestSequentialPassErrors(t *testing.T) {
 	ghost := *f.byPath["a"]
 	ghost.path = "ghost"
 	f.byPath["ghost"] = &ghost
-	if _, err := f.ReadFile("ghost"); !errors.Is(err, ErrNotFound) {
+	if err := callNoPanic(t, func() error { _, err := f.ReadFile("ghost"); return err }); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("an entry the pass never meets: err = %v, want ErrNotFound", err)
 	}
 	// An empty read past the end of a short member must still report the
