@@ -6,11 +6,25 @@ package rar
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"testing"
 
 	"github.com/nwaples/rardecode/v2"
 )
+
+// callNoPanic runs call and turns a panic into a returned error, so that a
+// lookup that stopped checking its error fails an assertion instead of
+// dereferencing a nil entry and ending the test binary.
+func callNoPanic(t *testing.T, call func() error) (err error) {
+	t.Helper()
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panicked: %v", r)
+		}
+	}()
+	return call()
+}
 
 // fake is an archive the test writes itself. The decoder is behind the scanner
 // interface precisely so the shape of this package can be exercised without a
@@ -99,7 +113,7 @@ func TestIndexNamesTheDirectoriesTheArchiveDidNot(t *testing.T) {
 	if _, err := fs.ListDir("notes.txt"); !errors.Is(err, ErrNotDirectory) {
 		t.Errorf("listing a file gave %v, want ErrNotDirectory", err)
 	}
-	if _, err := fs.Stat("nothing/here"); !errors.Is(err, ErrNotFound) {
+	if err := callNoPanic(t, func() error { _, err := fs.Stat("nothing/here"); return err }); !errors.Is(err, ErrNotFound) {
 		t.Errorf("stat of an absent path gave %v, want ErrNotFound", err)
 	}
 }
@@ -211,7 +225,7 @@ func TestALinkIsReadAsALink(t *testing.T) {
 	if _, err := fs.ReadLink("notes.txt"); !errors.Is(err, ErrNotSymlink) {
 		t.Errorf("ReadLink of a plain file gave %v, want ErrNotSymlink", err)
 	}
-	if _, err := fs.ReadLink("nowhere"); !errors.Is(err, ErrNotFound) {
+	if err := callNoPanic(t, func() error { _, err := fs.ReadLink("nowhere"); return err }); !errors.Is(err, ErrNotFound) {
 		t.Errorf("ReadLink of an absent path gave %v, want ErrNotFound", err)
 	}
 
